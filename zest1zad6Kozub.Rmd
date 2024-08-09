@@ -1,0 +1,192 @@
+---
+title: "Metody nieparametryczne w statystyce"
+subtitle: "Zestaw 1, zadanie 6"
+author: "Jakub Kozub"
+date: "2024-05-20"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+## Wstęp
+
+Celem badania jest porównanie mocy testów Kołmogorowa, Lillieforsa i Andersona-Darlinga w przypadku, gdy dane pochodzą z rozkładu 𝑡-Studenta. Dodatkowo, brany pod uwagę jest też wpływ na moc testu takich czynników, jak:
+
+* liczba danych,
+
+* liczba stopni swobody generowanego rozkładu t-Studenta.
+
+
+H0: cecha ma rozkład normalny
+
+H1: cecha nie ma rozkładu normalnego
+
+Ponieważ dane w badaniu będą pochodziły z rozkładu 𝑡-Studenta, wiemy z góry, że hipoteza zerowa będzie dla tych danych fałszywa. Wyznaczenie mocy testu będzie zatem równoważne z wyznaczeniem odsetka odrzuceń H0.
+
+## Przygotowania
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(nortest)
+library(tseries)
+```
+
+Po załadowaniu odpowiednich pakietów, rozpoczynam przygotowanie do badania od utworzenia funkcji służących do wyznaczania mocy poszczególnych testów dla zadanych wartości argumentów:
+
+* `n` - liczba danych,
+
+* `dof` - liczba stopni swobody generowanego rozkładu t-Studenta,
+
+* `alfa` - poziom istotności przyjęty dla testu,
+
+* `k` - liczba powtórzeń.
+
+Funkcje te `k` razy generują wektor `n` danych z rozkładu t-Studenta o `dof` stopniach swobody, standaryzują go i wykonują na nim odpowiedni test zgodności z rozkładem normalnym. Jeśli uzyskane p-value jest mniejsze od poziomu istotności `alfa`, to funkcja wykonywana na wektorze 1:k zwraca wartość `TRUE`. Rezultatem działania funkcji `sapply` jest więc wektor wartości logicznych o długości `k`. Obliczana na koniec średnia wartości tego wektora jest równa odsetkowi odrzuceń H0 w badanym teście.
+
+```{r}
+
+mocKolmogorow <- function(n, dof, alfa, k) {
+  mean(
+    sapply(1:k,
+           function(i) {
+             x <- rt(n, dof)
+             u <- (x-mean(x))/sd(x)
+             ks.test(u, "pnorm")$p.value < alfa
+           }
+    )
+  )
+}
+
+mocLilliefors <- function(n, dof, alfa, k) {
+  mean(
+    sapply(1:k,
+           function(i) {
+             x <- rt(n, dof)
+             u <- (x-mean(x))/sd(x)
+             lillie.test(u)$p.value < alfa
+           }
+    )
+  )
+}
+
+mocAnderson <- function(n, dof, alfa, k) {
+  mean(
+    sapply(1:k,
+           function(i) {
+             x <- rt(n, dof)
+             u <- (x-mean(x))/sd(x)
+             ad.test(u)$p.value < alfa
+           }
+    )
+  )
+}
+```
+
+Tworzę zmienne przechowujące ustalone z góry wartości alfa i k oraz wektory wartości n i dof. Ustawiam też ziarno generatora, by wyniki nie zmieniały się przy każdym uruchomieniu.
+
+```{r}
+alfa <- 0.05
+k <- 1000
+
+n_vec <- c(10, 20, 50, 100, 200, 500, 1000)
+dof_vec <- 1:20
+
+set.seed(123)
+```
+
+
+## Badanie
+
+### Wyznaczenie mocy testów
+
+Wyznaczam moce badanych testów dla wszystkich kombinacji wartości n i dof z utworzonych powyżej wektorów i zapisuję wyniki w ramce danych.
+
+```{r}
+lapply(n_vec, function(n){
+  data.frame(
+    dof=dof_vec,
+    n=n,
+    powKS=sapply( dof_vec, function(dof) {
+      mocKolmogorow(n, dof, alfa, k)
+    }),
+    powL=sapply( dof_vec, function(dof) {
+      mocLilliefors(n, dof, alfa, k)
+    }),
+    powAD=sapply( dof_vec, function(dof) {
+      mocAnderson(n, dof, alfa, k)
+    })
+  )
+}) %>% 
+  do.call(what=rbind) -> testy_df
+```
+
+
+### Wykresy mocy testów w zależności od n i dof
+
+Dla każdego z badanych rozkładów przedstawiam na wykresie krzywe mocy testu w zależności od liczby stopni swobody generowanego rozkładu dla 
+
+```{r}
+testy_df %>%
+  ggplot(aes(x=dof, y=powKS, col=factor(n)))+
+  geom_line() +
+  geom_hline(yintercept = 0.05, lty=2, col="blue") +
+  labs(title="Test Kolmogorowa-Smirnowa", x="Liczba stopni swobody", y="Moc testu", col="Liczba danych")
+
+```
+
+
+```{r, echo=FALSE}
+testy_df %>%
+  ggplot(aes(x=dof, y=powL, col=factor(n)))+
+  geom_line() +
+  geom_hline(yintercept = 0.05, lty=2, col="blue") +
+  labs(title="Test Lillieforsa", x="Liczba stopni swobody", y="Moc testu", col="Liczba danych")
+
+testy_df %>%
+  ggplot(aes(x=dof, y=powAD, col=factor(n)))+
+  geom_line() +
+  geom_hline(yintercept = 0.05, lty=2, col="blue") +
+  labs(title="Test Andersona-Darlinga", x="Liczba stopni swobody", y="Moc testu", col="Liczba danych")
+
+```
+
+
+### Moc badanych testów w zależności od liczby stopni swobody rozkładu
+
+Dla wybranych wartości `n` bezpośrednio porównuję badane testy pod względem zależności mocy testu od liczby stopni swobody generowanego rozkładu.
+
+```{r}
+for (ni in c(20, 100, 500)) {
+  plot(x=dof_vec, y=testy_df[testy_df$n==ni,"powKS"], type = "l", col="green",
+       main=paste("Moc badanych testów w zależności", "\n", "od liczby stopni swobody rozkładu dla n =", ni),
+       xlab="Liczba stopni swobody", ylab="Moc testu")
+  lines(testy_df[testy_df$n==ni,"powL"], col = "blue")
+  lines(testy_df[testy_df$n==ni,"powAD"], col = "red")
+  legend(x = "topright", 
+         legend=c("Test Kolmogorowa-Smirnowa", "Test Lillieforsa", "Test Andersona-Darlinga"),  
+         col = c("green", "blue", "red"),
+         lty=rep(1, 3), box.lty=1
+  ) 
+}
+```
+
+
+## Podsumowanie
+
+Na podstawie utworzonych wykresów można stwierdzić, że dla wszystkich badanych testów ich moc zdaje się rosnąć wraz ze wzrostem liczby danych. Maleje ona natomiast wraz ze wzrostem liczby stopni swobody generowanego rozkładu, co zapewne wynika z rosnącego wraz z liczbą stopni swobody podobieństwa rozkładu t-studenta do rozkładu normalnego. Sprawia to, że im wyższa liczba stopni swobody, tym trudniej odróżnić rozkład t-Studenta od rozkładu normalnego, czyli odrzucić hipotezę zerową w teście normalności. Na podstawie wykresów możemy jednak ocenić "odporność" badanych testów na ten problem, porównując ich moce. Porównanie takie sugeruje, że uszeregowanie ich od największej do najmniejszej mocy może wyglądać następująco:
+
+1. test Andersona-Darlinga,
+
+2. test Lillieforsa,
+
+3. test Kołmogorowa.
+
+Warto jednak odnotować, że o ile dwa pierwsze testy osiągnęły dosyć zbliżone wyniki, tak test Kołmogorowa znacznie od nich odstaje i wydaje się być zdecydowanie słabszy.
